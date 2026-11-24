@@ -1,0 +1,80 @@
+---
+- name: Detect and remediate duplicate RPM packages
+  hosts: all
+  become: true
+
+  vars:
+    perform_remediation: false
+    rpm_backup_file: "/tmp/rpm_database_backup.tar.bz2"
+
+  tasks:
+    - name: Detect duplicate RPM packages
+      ansible.builtin.command:
+        cmd: dnf repoquery --duplicates --latest-limit=-1 -q
+      register: duplicate_check
+      changed_when: false
+      failed_when: duplicate_check.rc != 0
+
+    - name: Display detected duplicate packages
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            duplicate_check.stdout_lines
+            if duplicate_check.stdout_lines | length > 0
+            else ['No duplicate RPM packages detected']
+          }}
+
+    - name: Stop before remediation unless explicitly enabled
+      ansible.builtin.assert:
+        that:
+          - perform_remediation | bool
+        fail_msg: >-
+          Duplicate packages were detected. Review the package list and
+          run the playbook with -e perform_remediation=true to continue.
+        success_msg: "RPM remediation has been explicitly enabled."
+      when: duplicate_check.stdout_lines | length > 0
+
+    - name: Install backup compression utility
+      ansible.builtin.package:
+        name: bzip2
+        state: present
+      when:
+        - duplicate_check.stdout_lines | length > 0
+        - perform_remediation | bool
+
+    - name: Back up RPM and DNF databases
+      ansible.builtin.command:
+        cmd: >-
+          tar cjf {{ rpm_backup_file }}
+          /var/lib/rpm
+          /var/lib/dnf
+          /etc/dnf
+          /etc/os-release
+          /usr/lib/os-release
+      when:
+        - duplicate_check.stdout_lines | length > 0
+        - perform_remediation | bool
+
+    - name: Remove duplicate entries from RPM database
+      ansible.builtin.command:
+        cmd: "rpm -e --justdb --nodeps {{ item }}"
+      loop: "{{ duplicate_check.stdout_lines }}"
+      register: rpm_removal
+      when:
+        - duplicate_check.stdout_lines | length > 0
+        - perform_remediation | bool
+
+    - name: Update packages after RPM database remediation
+      ansible.builtin.command:
+        cmd: dnf update --nobest -y
+      when:
+        - duplicate_check.stdout_lines | length > 0
+        - perform_remediation | bool
+
+    - name: Refresh Red Hat Insights
+      ansible.builtin.command:
+        cmd: insights-client
+      register: insights_refresh
+      changed_when: false
+      failed_when: false
+      when: perform_remediation | bool
