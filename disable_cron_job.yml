@@ -1,0 +1,25 @@
+---
+- name: Disable specified cron job from root crontab
+  hosts: all
+  become: true
+
+  vars:
+    cron_job_pattern: "example_script.sh"
+    temp_crontab: "/tmp/root_crontab.txt"
+
+  tasks:
+    - name: Export current root crontab
+      ansible.builtin.shell: |
+        crontab -l > "{{ temp_crontab }}" || touch "{{ temp_crontab }}"
+      args:
+        executable: /bin/bash
+
+    - name: Comment out matching cron job
+      ansible.builtin.shell: |
+        sed -i '/{{ cron_job_pattern }}/ s/^[^#]/#&/' "{{ temp_crontab }}"
+      args:
+        executable: /bin/bash
+
+    - name: Load updated root crontab
+      ansible.builtin.command:
+        cmd: "crontab {{ temp_crontab }}"
