@@ -1,4 +1,5 @@
 Linux Automation Portfolio
+
 A collection of Linux infrastructure automation developed using Ansible, Python, and Shell scripting.
 
 This repository demonstrates practical automation for Linux system administration, security remediation, identity management, VMware, monitoring, mail services, Red Hat Insights, and operational reporting.
@@ -184,6 +185,7 @@ For automation requiring SSH keys:
 ansible-playbook -i inventory playbook.yml \
   --private-key /path/to/automation_key \
   -u automation_user
+  
 Test automation against non-production systems before applying changes to production infrastructure.
 
 Purpose
