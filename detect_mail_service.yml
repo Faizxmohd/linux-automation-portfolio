@@ -1,0 +1,26 @@
+---
+- name: Detect Postfix or Sendmail
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Check postfix status
+      command: systemctl is-active postfix
+      register: postfix_status
+      ignore_errors: yes
+
+    - name: Check sendmail status
+      command: systemctl is-active sendmail
+      register: sendmail_status
+      ignore_errors: yes
+
+    - name: Print result
+      debug:
+        msg: >
+          {% if postfix_status.stdout == 'active' %}
+            Postfix is running.
+          {% elif sendmail_status.stdout == 'active' %}
+            Sendmail is running.
+          {% else %}
+            Neither Postfix nor Sendmail is running.
+          {% endif %}
