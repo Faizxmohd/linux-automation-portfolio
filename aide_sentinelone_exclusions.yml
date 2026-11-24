@@ -1,0 +1,15 @@
+- name: Update AIDE configuration with correct exclusions
+  hosts: all
+  become: true
+  tasks:
+
+
+    - name: Add SentinelOne wildcard exclusions to aide.conf
+      blockinfile:
+        path: /etc/aide.conf
+        block: |
+          # SentinelOne kernel interface files excluded to prevent
+          # AIDE I/O errors during database initialization.
+          # These files are virtual and not suitable for integrity checks.
+          !/opt/sentinelone/ebpfs/bpf_mount/*
+          !/opt/sentinelone/mount/osnoise/per_cpu/*
