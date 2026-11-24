@@ -1,0 +1,78 @@
+---
+- name: Uninstall and Decommission SentinelOne
+  hosts: all
+  become: yes
+  gather_facts: false
+
+  vars:
+    s1_url: "https://your-tenant.sentinelone.net/web/api/v2.1"
+    s1_token: "YOUR_SENTINELONE_API_TOKEN"
+
+  tasks:
+
+    - name: Get SentinelOne agent
+      uri:
+        url: "{{ s1_url }}/agents?computerName={{ inventory_hostname }}"
+        method: GET
+        headers:
+          Authorization: "ApiToken {{ s1_token }}"
+        return_content: yes
+      register: agent
+      delegate_to: localhost
+
+    - name: Fail if agent not found
+      fail:
+        msg: "No SentinelOne agent found for {{ inventory_hostname }}"
+      when: agent.json.data | length == 0
+
+    - name: Set agent ID
+      set_fact:
+        agent_id: "{{ agent.json.data[0].id }}"
+
+    - name: Get uninstall passphrase
+      uri:
+        url: "{{ s1_url }}/agents/passphrases?ids={{ agent_id }}"
+        method: GET
+        headers:
+          Authorization: "ApiToken {{ s1_token }}"
+        return_content: yes
+      register: passphrase
+      delegate_to: localhost
+
+    - name: Verify SentinelOne is installed
+      stat:
+        path: /opt/sentinelone/bin/sentinelctl
+      register: s1
+
+    - name: Fail if SentinelOne is not installed
+      fail:
+        msg: "SentinelOne is not installed on {{ inventory_hostname }}"
+      when: not s1.stat.exists
+
+    - name: Uninstall SentinelOne
+      command:
+        argv:
+          - /opt/sentinelone/bin/sentinelctl
+          - control
+          - uninstall
+          - --passphrase
+          - "{{ passphrase.json.data[0].passphrase }}"
+
+    - name: Decommission endpoint from SentinelOne console
+      uri:
+        url: "{{ s1_url }}/agents/actions/decommission"
+        method: POST
+        headers:
+          Authorization: "ApiToken {{ s1_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          filter:
+            ids:
+              - "{{ agent_id }}"
+        status_code: 200
+      delegate_to: localhost
+
+    - name: Success
+      debug:
+        msg: "SentinelOne uninstalled and endpoint decommissioned for {{ inventory_hostname }}"
