@@ -1,0 +1,12 @@
+---
+- name: Comment out asmaudit logrotate entry
+  hosts: all
+  become: yes
+  tasks:
+    - name: Comment out /var/log/asmaudit.log line in logrotate config
+      ansible.builtin.lineinfile:
+        path: /etc/logrotate.d/asmaudit
+        regexp: '^/var/log/asmaudit\.log'
+        line: '#/var/log/asmaudit.log {'
+        state: present
+        backrefs: yes
