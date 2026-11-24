@@ -1,0 +1,31 @@
+---
+- name: Standardize root account GECOS field
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    expected_gecos: "Root User - {{ inventory_hostname }}"
+
+  tasks:
+    - name: Get current root account information
+      ansible.builtin.getent:
+        database: passwd
+        key: root
+
+    - name: Get current root GECOS field
+      ansible.builtin.set_fact:
+        current_gecos: "{{ ansible_facts.getent_passwd['root'][3] }}"
+
+    - name: Update root GECOS field when required
+      ansible.builtin.user:
+        name: root
+        comment: "{{ expected_gecos }}"
+      when: current_gecos != expected_gecos
+
+    - name: Report GECOS configuration
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Updated root GECOS to: ' + expected_gecos
+             if current_gecos != expected_gecos
+             else 'Root GECOS is already correctly configured' }}
