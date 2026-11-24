@@ -1,0 +1,45 @@
+---
+- name: Ensure infosec SSH key exists
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    infosec_user: "infosec"
+    infosec_home: "/u001/users/infosec"
+    ssh_dir: "{{ infosec_home }}/.ssh"
+    auth_keys: "{{ ssh_dir }}/authorized_keys"
+    local_key_file: "{{ playbook_dir }}/authorized_keys_infosec"
+
+  tasks:
+
+    - name: Get infosec user's primary group
+      ansible.builtin.command: "id -gn {{ infosec_user }}"
+      register: primary_group
+      changed_when: false
+
+    - name: Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "{{ ssh_dir }}"
+        state: directory
+        owner: "{{ infosec_user }}"
+        group: "{{ primary_group.stdout }}"
+        mode: '0700'
+
+    - name: Ensure authorized_keys file exists
+      ansible.builtin.file:
+        path: "{{ auth_keys }}"
+        state: touch
+        owner: "{{ infosec_user }}"
+        group: "{{ primary_group.stdout }}"
+        mode: '0600'
+
+    - name: Ensure infosec key is present
+      ansible.builtin.lineinfile:
+        path: "{{ auth_keys }}"
+        line: "{{ lookup('file', local_key_file) | trim }}"
+        state: present
+        owner: "{{ infosec_user }}"
+        group: "{{ primary_group.stdout }}"
+        mode: '0600'
+
