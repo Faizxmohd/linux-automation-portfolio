@@ -1,0 +1,26 @@
+---
+- name: Enforce immutable attribute on resolv.conf
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Check current attributes of resolv.conf
+      ansible.builtin.command:
+        cmd: lsattr /etc/resolv.conf
+      register: resolv_attr
+      changed_when: false
+
+    - name: Set immutable attribute on resolv.conf
+      ansible.builtin.command:
+        cmd: chattr +i /etc/resolv.conf
+      when: "'i' not in resolv_attr.stdout.split()[0]"
+
+    - name: Verify resolv.conf attributes
+      ansible.builtin.command:
+        cmd: lsattr /etc/resolv.conf
+      register: final_attr
+      changed_when: false
+
+    - name: Display final attributes
+      ansible.builtin.debug:
+        msg: "{{ final_attr.stdout }}"
