@@ -1,0 +1,44 @@
+---
+- name: Validate IPA users and manage group membership
+  hosts: ipa_server
+  become: true
+  gather_facts: false
+
+  vars:
+    ipa_group: "example_group"
+
+    users:
+      - user01
+      - user02
+      - user03
+      - user04
+      - user05
+
+  tasks:
+    - name: Verify users exist in IPA
+      ansible.builtin.command:
+        cmd: "ipa user-show {{ item }}"
+      loop: "{{ users }}"
+      register: user_check
+      failed_when: false
+      changed_when: false
+
+    - name: Add existing users to IPA group
+      ansible.builtin.command:
+        cmd: "ipa group-add-member {{ ipa_group }} --users={{ item.item }}"
+      loop: "{{ user_check.results }}"
+      when: item.rc == 0
+      register: group_add
+
+    - name: Show users not found in IPA
+      ansible.builtin.debug:
+        msg: "User not found: {{ item.item }}"
+      loop: "{{ user_check.results }}"
+      when: item.rc != 0
+
+    - name: Display validation summary
+      ansible.builtin.debug:
+        msg:
+          - "Total users checked: {{ users | length }}"
+          - "Users found: {{ user_check.results | selectattr('rc', 'equalto', 0) | list | length }}"
+          - "Users missing: {{ user_check.results | selectattr('rc', 'ne', 0) | list | length }}"
