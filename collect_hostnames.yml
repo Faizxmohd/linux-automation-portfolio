@@ -1,0 +1,15 @@
+---
+- name: Collect hostnames
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Get system hostname
+      ansible.builtin.command:
+        cmd: hostname
+      register: hostname_result
+      changed_when: false
+
+    - name: Display inventory host and system hostname
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} -> {{ hostname_result.stdout }}"
