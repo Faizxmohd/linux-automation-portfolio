@@ -1,0 +1,44 @@
+---
+- name: Enable and validate kdump
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Check crashkernel kernel parameter
+      ansible.builtin.command:
+        cmd: grep -i crashkernel /proc/cmdline
+      register: crashkernel_cmdline
+      changed_when: false
+      failed_when: false
+
+    - name: Check crashkernel memory reservation
+      ansible.builtin.command:
+        cmd: grep -i crash /proc/iomem
+      register: crashkernel_iomem
+      changed_when: false
+      failed_when: false
+
+    - name: Install kexec-tools
+      ansible.builtin.package:
+        name: kexec-tools
+        state: present
+
+    - name: Enable and start kdump
+      ansible.builtin.service:
+        name: kdump
+        enabled: true
+        state: started
+      when:
+        - crashkernel_cmdline.rc == 0
+        - crashkernel_iomem.rc == 0
+
+    - name: Get kdump service status
+      ansible.builtin.command:
+        cmd: systemctl status kdump --no-pager
+      register: kdump_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display kdump status
+      ansible.builtin.debug:
+        var: kdump_status.stdout
