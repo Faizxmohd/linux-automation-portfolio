@@ -1,0 +1,160 @@
+---
+- hosts: all
+  become: true
+  gather_facts: yes
+
+  tasks:
+
+  - name: Get server hostname
+    shell: hostname -f
+    register: shell_result1
+
+  - set_fact:
+      hostname: "{{ shell_result1.stdout }}"
+
+  - name: Copy the uptime script to /tmp
+    copy:
+      src: uptime_weekly_1st.sh
+      dest: /tmp
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: Run uptime script
+    shell: sh /tmp/uptime_weekly_1st.sh
+    register: shell_result2
+
+  - set_fact:
+      uptime: "{{ shell_result2.stdout }}"
+
+  - name: Get current date and time
+    shell: date "+%A, %d %B %Y %I:%M:%S %p"
+    register: shell_result3
+
+  - set_fact:
+      date: "{{ shell_result3.stdout }}"
+
+  - name: Remove old uptime CSV file
+    file:
+      path: /tmp/uptime_report.csv
+      state: absent
+    delegate_to: localhost
+    run_once: true
+
+  - name: Create CSV header
+    lineinfile:
+      path: "/tmp/uptime_report.csv"
+      line: "ServerName,Uptime Percentage,Date"
+      create: yes
+      state: present
+    run_once: true
+    delegate_to: localhost
+
+  - name: Wait for lock release
+    shell: |
+      retries=0
+      while [ -f /tmp/uptime_csv.lock ]; do
+        sleep 1
+        retries=$((retries+1))
+        if [ "$retries" -ge 60 ]; then
+          echo "Lock wait timeout"
+          exit 1
+        fi
+      done
+    delegate_to: localhost
+    throttle: 1
+
+  - name: Create lock file
+    file:
+      path: /tmp/uptime_csv.lock
+      state: touch
+    delegate_to: localhost
+    throttle: 1
+
+  - name: Append server uptime data to CSV
+    lineinfile:
+      path: "/tmp/uptime_report.csv"
+      line: '{{ hostname }},{{ uptime }},"{{ date }}"'
+      insertafter: EOF
+      create: yes
+      state: present
+    delegate_to: localhost
+    throttle: 1
+
+  - name: Remove lock file
+    file:
+      path: /tmp/uptime_csv.lock
+      state: absent
+    delegate_to: localhost
+    throttle: 1
+
+  - name: Set mail body with server stats
+    set_fact:
+      mail_body: |
+        Hello Team,
+
+        Please find attached the weekly Linux uptime report.
+
+        - Total servers in inventory: {{ ansible_play_hosts_all | length }}
+        - Servers that reported uptime: {{ ansible_play_hosts | length }}
+
+        Regards,
+        Linux Operations
+
+  - name: Send uptime report via email
+    mail:
+      host: smtp.example.com
+      port: 25
+      subject: Weekly Linux Uptime Report
+      from: linux-uptime@example.com
+      to:
+        - linux-operations@example.com
+      body: "{{ mail_body }}"
+      attach:
+        - "/tmp/uptime_report.csv"
+    delegate_to: localhost
+    ignore_errors: true
+    run_once: true
+
+  - name: Identify unreachable hosts
+    set_fact:
+      down: "{{ ansible_play_hosts_all | difference(ansible_play_hosts) | join('\n') }}"
+    run_once: true
+
+  - name: Write unreachable hosts to file
+    copy:
+      content: "{{ down }}"
+      dest: "/tmp/unreachable_hosts.txt"
+    delegate_to: localhost
+    run_once: true
+
+  - name: Append UNREACHABLE status to each line
+    shell: |
+      sed -i 's/$/,UNREACHABLE/' /tmp/unreachable_hosts.txt
+    delegate_to: localhost
+    run_once: true
+
+  - name: Send unreachable hosts report
+    mail:
+      host: smtp.example.com
+      port: 25
+      from: linux-uptime@example.com
+      to:
+        - linux-operations@example.com
+      subject: Unreachable Hosts - Weekly Uptime Report
+      body: Please find the unreachable hosts in the attachment.
+      attach:
+        - "/tmp/unreachable_hosts.txt"
+    delegate_to: localhost
+    ignore_errors: true
+    run_once: true
+
+  - name: Cleanup temporary files
+    shell: >
+      rm -rf
+      /tmp/unreachable_hosts.txt
+      /tmp/uptime_csv.lock
+      /tmp/uptime_report.csv
+    delegate_to: localhost
+    ignore_errors: true
+    run_once: true
