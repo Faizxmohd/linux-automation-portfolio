@@ -1,0 +1,129 @@
+---
+- name: Collect NIS users
+  hosts: nis
+  gather_facts: false
+
+  tasks:
+    - name: Retrieve NIS usernames
+      ansible.builtin.shell:
+        cmd: "ypcat passwd | cut -d: -f1"
+      register: nis_users
+      changed_when: false
+
+    - name: Store NIS user list
+      ansible.builtin.set_fact:
+        nis_user_list: "{{ nis_users.stdout_lines }}"
+
+
+- name: Compare NIS users with FreeIPA
+  hosts: idm
+  gather_facts: false
+  become: true
+
+  vars:
+    nis_user_list: "{{ hostvars[groups['nis'][0]].nis_user_list }}"
+
+  tasks:
+    - name: Initialize validation lists
+      ansible.builtin.set_fact:
+        active_users: []
+        disabled_users: []
+        missing_users: []
+
+    - name: Check users in FreeIPA
+      ansible.builtin.command:
+        cmd: "ipa user-show {{ item }}"
+      loop: "{{ nis_user_list }}"
+      register: ipa_results
+      failed_when: false
+      changed_when: false
+
+    - name: Build active users list
+      ansible.builtin.set_fact:
+        active_users: "{{ active_users + [item.item] }}"
+      loop: "{{ ipa_results.results }}"
+      when:
+        - item.rc == 0
+        - "'Account disabled: False' in item.stdout"
+
+    - name: Build disabled users list
+      ansible.builtin.set_fact:
+        disabled_users: "{{ disabled_users + [item.item] }}"
+      loop: "{{ ipa_results.results }}"
+      when:
+        - item.rc == 0
+        - "'Account disabled: True' in item.stdout"
+
+    - name: Build missing users list
+      ansible.builtin.set_fact:
+        missing_users: "{{ missing_users + [item.item] }}"
+      loop: "{{ ipa_results.results }}"
+      when: item.rc != 0
+
+
+- name: Generate NIS to FreeIPA validation reports
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    active_users: "{{ hostvars[groups['idm'][0]].active_users }}"
+    disabled_users: "{{ hostvars[groups['idm'][0]].disabled_users }}"
+    missing_users: "{{ hostvars[groups['idm'][0]].missing_users }}"
+
+    smtp_host: "smtp.example.com"
+    smtp_port: 25
+    mail_from: "ansible@example.com"
+    mail_to: "admin@example.com"
+
+  tasks:
+    - name: Create active users report
+      ansible.builtin.copy:
+        dest: /tmp/active_users.csv
+        mode: "0644"
+        content: |
+          Username
+          {% for user in active_users %}
+          {{ user }}
+          {% endfor %}
+
+    - name: Create disabled users report
+      ansible.builtin.copy:
+        dest: /tmp/disabled_users.csv
+        mode: "0644"
+        content: |
+          Username
+          {% for user in disabled_users %}
+          {{ user }}
+          {% endfor %}
+
+    - name: Create missing users report
+      ansible.builtin.copy:
+        dest: /tmp/missing_users.csv
+        mode: "0644"
+        content: |
+          Username
+          {% for user in missing_users %}
+          {{ user }}
+          {% endfor %}
+
+    - name: Send validation report
+      community.general.mail:
+        host: "{{ smtp_host }}"
+        port: "{{ smtp_port }}"
+        subject: "NIS to FreeIPA User Validation Report"
+        from: "{{ mail_from }}"
+        to:
+          - "{{ mail_to }}"
+        body: |
+          NIS to FreeIPA validation completed.
+
+          Active Users   : {{ active_users | length }}
+          Disabled Users : {{ disabled_users | length }}
+          Missing Users  : {{ missing_users | length }}
+
+          Please find the attached validation reports.
+        attach:
+          - /tmp/active_users.csv
+          - /tmp/disabled_users.csv
+          - /tmp/missing_users.csv
