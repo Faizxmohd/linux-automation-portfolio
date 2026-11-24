@@ -1,0 +1,79 @@
+---
+- name: Check LDAP connectivity via test user
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    ldap_test_user: "testuser"
+    ldap_id_regex: "uid=\\d+\\({{ ldap_test_user }}\\)"
+
+  tasks:
+
+    - name: Run `id {{ ldap_test_user }}`
+      command: "id {{ ldap_test_user }}"
+      register: id_check
+      changed_when: false
+      failed_when: >
+        (id_check.rc != 0) or
+        (id_check.stdout is not regex(ldap_id_regex))
+
+    - name: Set per-host LDAP status fact
+      set_fact:
+        ldap_id_status: >-
+          {{ 'ok'
+             if (id_check.rc == 0
+                 and (id_check.stdout is regex(ldap_id_regex)))
+             else 'failed' }}
+
+- name: Collect and summarize LDAP check results
+  hosts: all
+  gather_facts: false
+
+  tasks:
+
+    - name: Initialize lists
+      set_fact:
+        ldap_failed_hosts: []
+        ldap_no_user_hosts: []
+      run_once: true
+      delegate_to: localhost
+
+    - name: Aggregate failed hosts
+      run_once: true
+      delegate_to: localhost
+      vars:
+        all_hosts: "{{ ansible_play_hosts }}"
+      set_fact:
+        ldap_failed_hosts: "{{ ldap_failed_hosts + [item] }}"
+      loop: "{{ all_hosts }}"
+      when: hostvars[item].ldap_id_status == 'failed'
+
+    - name: Aggregate hosts where user not found
+      run_once: true
+      delegate_to: localhost
+      vars:
+        all_hosts: "{{ ansible_play_hosts }}"
+      set_fact:
+        ldap_no_user_hosts: "{{ ldap_no_user_hosts + [item] }}"
+      loop: "{{ all_hosts }}"
+      when: "'no such user' in (hostvars[item].id_check.stdout | default('')) or
+             'no such user' in (hostvars[item].id_check.stderr | default(''))"
+
+    - name: Print summary
+      debug:
+        msg:
+          - "LDAP OK Hosts: {{ ansible_play_hosts | difference(ldap_failed_hosts) }}"
+          - "LDAP Failed Hosts: {{ ldap_failed_hosts }}"
+          - "Hosts where test user not found: {{ ldap_no_user_hosts }}"
+
+    - name: Export results to CSV
+      run_once: true
+      delegate_to: localhost
+      copy:
+        dest: "./ldap_check_results.csv"
+        content: |
+          Hostname,Status
+          {% for host in ansible_play_hosts %}
+          {{ host }},{{ hostvars[host].ldap_id_status }}
+          {% endfor %}
