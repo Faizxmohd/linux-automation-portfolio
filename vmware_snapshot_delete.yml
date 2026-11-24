@@ -1,0 +1,98 @@
+---
+- name: Delete snapshots for VMs in VMware vCenter
+  hosts: all
+  gather_facts: false
+
+  vars_files:
+    - /path/to/group_vars/vault.yml
+
+  vars:
+    vcenters:
+      - vcenter01.example.com
+      - vcenter02.example.com
+      - vcenter03.example.com
+      - vcenter04.example.com
+
+  tasks:
+
+    - name: Create VM name variations
+      set_fact:
+        vm_name_variations:
+          - "{{ inventory_hostname }}"
+          - "{{ inventory_hostname | lower }}"
+          - "{{ inventory_hostname | upper }}"
+
+    - name: Find the VM across all vCenters
+      community.vmware.vmware_vm_info:
+        hostname: "{{ item.0 }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        vm_name: "{{ item.1 }}"
+      loop: "{{ vcenters | product(vm_name_variations | unique) | list }}"
+      delegate_to: localhost
+      register: vm_search
+      failed_when: false
+
+    - name: Set VM details
+      set_fact:
+        discovered_vm:
+          vcenter: "{{ item.item.0 }}"
+          datacenter: "{{ item.virtual_machines[0].datacenter }}"
+          folder: "{{ item.virtual_machines[0].folder }}"
+          vm_name: "{{ item.virtual_machines[0].guest_name }}"
+      loop: "{{ vm_search.results }}"
+      loop_control:
+        label: "{{ item.item.0 }} - {{ item.item.1 }}"
+      when:
+        - item.virtual_machines | default([]) | length > 0
+        - discovered_vm is not defined
+
+    - name: Show discovered VM
+      debug:
+        msg: "{{ inventory_hostname }} matched {{ discovered_vm.vm_name }} on {{ discovered_vm.vcenter }} ({{ discovered_vm.datacenter }})"
+      when: discovered_vm is defined
+
+    - name: Show VM not found
+      debug:
+        msg: "{{ inventory_hostname }} was not found on any configured vCenter"
+      when: discovered_vm is not defined
+
+    - name: Get existing snapshots
+      community.vmware.vmware_guest_snapshot_info:
+        hostname: "{{ discovered_vm.vcenter }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        datacenter: "{{ discovered_vm.datacenter }}"
+        folder: "{{ discovered_vm.folder }}"
+        name: "{{ discovered_vm.vm_name }}"
+      delegate_to: localhost
+      register: snap_info
+      when: discovered_vm is defined
+
+    - name: Delete all snapshots
+      community.vmware.vmware_guest_snapshot:
+        hostname: "{{ discovered_vm.vcenter }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        datacenter: "{{ discovered_vm.datacenter }}"
+        folder: "{{ discovered_vm.folder }}"
+        name: "{{ discovered_vm.vm_name }}"
+        state: absent
+        snapshot_id: "{{ item.id }}"
+        remove_children: true
+      delegate_to: localhost
+      loop: "{{ snap_info.guest_snapshots.snapshots | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      failed_when: false
+      when:
+        - discovered_vm is defined
+        - snap_info.guest_snapshots.snapshots | default([]) | length > 0
+
+    - name: Deletion summary
+      debug:
+        msg: "Removed {{ snap_info.guest_snapshots.snapshots | default([]) | length }} snapshot(s) from {{ discovered_vm.vm_name }} on {{ discovered_vm.vcenter }}"
+      when: discovered_vm is defined
