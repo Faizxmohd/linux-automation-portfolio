@@ -1,0 +1,50 @@
+---
+- name: Configure Postfix relayhost and send test email
+  hosts: all
+  become: true
+
+  vars:
+    relay_host: "smtp.example.com"
+    test_recipient: "admin@example.com"
+
+  tasks:
+    - name: Ensure Postfix is installed
+      ansible.builtin.package:
+        name: postfix
+        state: present
+
+    - name: Back up Postfix configuration
+      ansible.builtin.copy:
+        src: /etc/postfix/main.cf
+        dest: /etc/postfix/main.cf.bak
+        remote_src: true
+        mode: "0644"
+        force: false
+
+    - name: Configure Postfix relayhost
+      ansible.builtin.lineinfile:
+        path: /etc/postfix/main.cf
+        regexp: '^\s*relayhost\s*='
+        line: "relayhost = {{ relay_host }}"
+        create: true
+      notify: Restart Postfix
+
+    - name: Validate Postfix configuration
+      ansible.builtin.command:
+        cmd: postfix check
+      changed_when: false
+
+    - name: Apply configuration changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Send test email
+      ansible.builtin.shell:
+        cmd: 'mail -s "Postfix relay test" {{ test_recipient }} < /dev/null'
+      changed_when: false
+
+  handlers:
+    - name: Restart Postfix
+      ansible.builtin.service:
+        name: postfix
+        state: restarted
+        enabled: true
