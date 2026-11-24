@@ -1,0 +1,40 @@
+---
+- hosts: all
+  become: True
+
+  tasks:
+   - name: creating a DISABLE-INSECURE-INSIGHTS.pmod file
+     shell: touch /etc/crypto-policies/policies/modules/DISABLE-INSECURE-INSIGHTS.pmod
+
+   - lineinfile:
+        path: /etc/crypto-policies/policies/modules/DISABLE-INSECURE-INSIGHTS.pmod
+        line: "cipher@ssh = -*-CBC"
+        state: present
+        owner: root
+        group: root
+        mode: '0644'
+
+   - name: check current crypto policy
+     shell: update-crypto-policies --show
+     register: crypto_policy
+
+   - name: update the crypto policies (without NO-SHA1)
+     shell: update-crypto-policies --set DEFAULT:DISABLE-INSECURE-INSIGHTS
+     when: "'NO-SHA1' not in crypto_policy.stdout"
+
+   - name: update the crypto policies (with NO-SHA1)
+     shell: update-crypto-policies --set DEFAULT:DISABLE-INSECURE-INSIGHTS:NO-SHA1
+     when: "'NO-SHA1' in crypto_policy.stdout"
+
+   - name: restart the sshd service
+     shell: systemctl restart sshd.service
+
+   - name: final crypto policy status
+     shell: update-crypto-policies --show
+     register: final_crypto
+
+   - debug:
+        msg: "{{ final_crypto.stdout }}"
+
+   - name: Run insights-client to refresh Advisor analysis
+     command: insights-client
