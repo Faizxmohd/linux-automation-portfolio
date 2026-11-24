@@ -1,0 +1,42 @@
+---
+- name: Configure Sendmail relay and send test email
+  hosts: all
+  become: true
+
+  vars:
+    relay_host: "smtp.example.com"
+    test_recipient: "admin@example.com"
+
+  tasks:
+    - name: Ensure Sendmail configuration package is installed
+      ansible.builtin.package:
+        name: sendmail-cf
+        state: present
+
+    - name: Configure Sendmail SMART_HOST
+      ansible.builtin.replace:
+        path: /etc/mail/sendmail.mc
+        regexp: "^dnl define\\(`SMART_HOST', `.*'\\)dnl"
+        replace: "define(`SMART_HOST', `{{ relay_host }}')"
+      notify:
+        - Rebuild Sendmail configuration
+        - Restart Sendmail
+
+    - name: Apply Sendmail configuration changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Send test email
+      ansible.builtin.shell:
+        cmd: 'mail -s "Sendmail relay test" {{ test_recipient }} < /dev/null'
+      changed_when: false
+
+  handlers:
+    - name: Rebuild Sendmail configuration
+      ansible.builtin.command:
+        cmd: make -C /etc/mail
+
+    - name: Restart Sendmail
+      ansible.builtin.service:
+        name: sendmail
+        state: restarted
+        enabled: true
