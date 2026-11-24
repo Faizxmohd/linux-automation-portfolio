@@ -1,0 +1,31 @@
+---
+- name: Configure tuned for virtual guest performance
+  hosts: all
+  become: yes
+
+  tasks:
+
+    - name: Ensure tuned package is installed
+      package:
+        name: tuned
+        state: present
+
+    - name: Enable and start tuned service
+      service:
+        name: tuned
+        enabled: yes
+        state: started
+
+    - name: Apply virtual-guest tuned profile
+      command: tuned-adm profile virtual-guest
+
+    - name: Verify active tuned profile
+      command: tuned-adm active
+      register: tuned_status
+
+    - name: Display active tuned profile
+      debug:
+        var: tuned_status.stdout
+
+    - name: Run insights-client to refresh Advisor analysis
+      command: insights-client
