@@ -1,0 +1,39 @@
+# SSH keys
+*.pem
+*.key
+*.ppk
+id_rsa
+id_ed25519
+
+# Credentials / secrets
+*.vault
+vault_password*
+secrets/
+credentials*
+*_secrets.yml
+
+# Password data
+passwd.csv
+inp_passwords.txt
+passwords.txt
+
+# Logs
+*.log
+
+# Generated reports
+*_report.csv
+*_report.txt
+
+# Ansible
+*.retry
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editors
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
