@@ -1,0 +1,43 @@
+---
+- name: Audit root account GECOS field
+  hosts: all
+  gather_facts: false
+
+  vars:
+    report_file: "/tmp/gecos_audit_report.csv"
+
+  tasks:
+    - name: Initialize audit report
+      ansible.builtin.copy:
+        dest: "{{ report_file }}"
+        content: "Hostname,Current GECOS,Expected GECOS\n"
+        mode: "0644"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Get root account information
+      ansible.builtin.getent:
+        database: passwd
+        key: root
+
+    - name: Get current root GECOS field
+      ansible.builtin.set_fact:
+        current_gecos: "{{ ansible_facts.getent_passwd['root'][3] }}"
+
+    - name: Define expected GECOS value
+      ansible.builtin.set_fact:
+        expected_gecos: "Root User - {{ inventory_hostname }}"
+
+    - name: Record GECOS mismatch
+      ansible.builtin.lineinfile:
+        path: "{{ report_file }}"
+        line: "{{ inventory_hostname }},{{ current_gecos }},{{ expected_gecos }}"
+      delegate_to: localhost
+      when: current_gecos != expected_gecos
+
+    - name: Display audit result
+      ansible.builtin.debug:
+        msg: >-
+          Host {{ inventory_hostname }}:
+          Current GECOS="{{ current_gecos }}",
+          Expected GECOS="{{ expected_gecos }}"
