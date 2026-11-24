@@ -1,0 +1,33 @@
+---
+- name: Validate Postfix relayhost configuration
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    expected_relayhost: "smtp.example.com"
+    output_file: "/tmp/relayhost_mismatch.txt"
+
+  tasks:
+    - name: Remove previous mismatch report
+      ansible.builtin.file:
+        path: "{{ output_file }}"
+        state: absent
+      run_once: true
+      delegate_to: localhost
+
+    - name: Get configured Postfix relayhost
+      ansible.builtin.shell:
+        cmd: "grep '^relayhost' /etc/postfix/main.cf"
+      register: relay
+      changed_when: false
+      failed_when: false
+
+    - name: Record servers with mismatched relayhost
+      ansible.builtin.lineinfile:
+        path: "{{ output_file }}"
+        line: "{{ inventory_hostname }} - {{ relay.stdout | default('Not set') }}"
+        create: true
+        mode: "0644"
+      when: expected_relayhost not in relay.stdout
+      delegate_to: localhost
