@@ -1,0 +1,74 @@
+---
+- name: Install SentinelOne RPM and Verify Connectivity
+  hosts: all
+  become: yes
+  become_user: root
+
+  vars:
+    src_package_path: "/path/to/SentinelAgent_linux_x86_64.rpm"
+    dest_package_path: "/tmp/SentinelAgent_linux_x86_64.rpm"
+    management_token: "YOUR_SENTINELONE_MANAGEMENT_TOKEN"
+
+  tasks:
+    - name: Copy SentinelOne RPM to target server
+      copy:
+        src: "{{ src_package_path }}"
+        dest: "{{ dest_package_path }}"
+        mode: '0644'
+
+    - name: Check if SentinelAgent package is already installed
+      shell: rpm -q SentinelAgent
+      register: rpm_check
+      ignore_errors: true
+
+    - name: Install SentinelOne RPM package using rpm if not installed
+      command: rpm -ivh --quiet {{ dest_package_path }}
+      when: rpm_check.rc != 0
+      register: install_output
+      ignore_errors: true
+
+    - name: Verify sentinelctl binary exists
+      stat:
+        path: /opt/sentinelone/bin/sentinelctl
+      register: sentinelctl_check
+
+    - name: Fail if sentinelctl is missing
+      fail:
+        msg: "sentinelctl not found. Installation may have failed."
+      when: not sentinelctl_check.stat.exists
+
+    - name: Enable SentinelOne service
+      command: systemctl enable sentinelone
+      when: sentinelctl_check.stat.exists
+
+    - name: Start SentinelOne service
+      command: systemctl start sentinelone
+      when: sentinelctl_check.stat.exists
+
+    - name: Check SentinelOne management status
+      command: /opt/sentinelone/bin/sentinelctl management status
+      register: sentinel_status
+      changed_when: false
+
+    - name: Display SentinelOne status
+      debug:
+        var: sentinel_status.stdout_lines
+
+    - name: Check if connectivity is Off
+      set_fact:
+        connectivity_off: "{{ sentinel_status.stdout is search('Connectivity.*Off') }}"
+
+    - name: Reset management token if connectivity is Off
+      command: /opt/sentinelone/bin/sentinelctl management token set {{ management_token }}
+      when: connectivity_off
+
+    - name: Re-check SentinelOne management status
+      command: /opt/sentinelone/bin/sentinelctl management status
+      register: sentinel_status_after_reset
+      changed_when: false
+      when: connectivity_off
+
+    - name: Display SentinelOne status after token reset
+      debug:
+        var: sentinel_status_after_reset.stdout_lines
+      when: connectivity_off
