@@ -1,0 +1,21 @@
+---
+- hosts: all
+  become: yes
+
+  tasks:
+
+   - name: Get all nameserver entries
+     shell: grep '^nameserver' /etc/resolv.conf
+     register: nameservers
+     changed_when: false
+
+   - name: Comment out extra nameservers beyond the first three
+     lineinfile:
+       path: /etc/resolv.conf
+       regexp: '^{{ item }}$'
+       line: '#{{ item }}'
+     loop: "{{ nameservers.stdout_lines[3:] }}"
+     when: nameservers.stdout_lines | length > 3
+
+   - name: Refresh Red Hat Insights results
+     shell: insights-client
